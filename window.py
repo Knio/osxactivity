@@ -3,8 +3,9 @@ import time
 import subprocess
 import logging
 import json
+import sys
 import structpack
-from collections import namedtuple
+from collections import defaultdict
 
 IDLE_TIME = 15
 APP_TIME = 1
@@ -50,7 +51,12 @@ def get_idle_time():
 
 def get_active_window():
     line = subprocess.check_output('osascript window.scpt', stderr=subprocess.STDOUT, shell=True).strip()
-    app, window = line.split(':', 1)
+    try:
+        app, window = line.split(':', 1)
+    except:
+        import traceback
+        traceback.print_exc()
+        return 'ERROR', line
     return app, window
 
 
@@ -73,20 +79,61 @@ def get_entries():
         next = get_entry()
         if entry.duration() > 300:
             yield entry
+            entry = next
 
         if not next == entry:
             yield entry
             entry = next
 
 
-
-def main():
+def log():
     for entry in get_entries():
         log.info('Entry:' + json.dumps(entry.pack()))
 
 
+def load_entries(inp):
+    for line in inp:
+        entry_json = line.split('Entry:', 1)[1]
+        entry_data = json.loads(entry_json)
+        entry = Entry.load(entry_data)
+        yield entry
+
+
+def display_time(d, t):
+    h = d / 60 / 60
+    m = d / 60 % 60
+    p = d * 100.0 / t
+    return '%2dh %2dm (%2d%%)' % (h, m, p)
+
+
+def stats(entries):
+    time = defaultdict(lambda:defaultdict(int))
+    app_time = defaultdict(int)
+    total = 0
+    for e in entries:
+        d = e.duration()
+        total += d
+        app_time[e.app] += d
+        time[e.app][e.window] += d
+
+    for app, d in sorted(app_time.items(), reverse=True):
+        if d < 5 * 60:
+            continue
+        print '### %-50s ### %s' % (app, display_time(d, total))
+        for window, d in sorted(time[app].items(), reverse=True):
+            if d < 60:
+                continue
+            print '        %-50s %s' % (window[:50], display_time(d, total))
+        print
+
+
+
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) == 2:
+        stats(load_entries(file(sys.argv[1])))
+
+    else:
+        log()
 
 
 
